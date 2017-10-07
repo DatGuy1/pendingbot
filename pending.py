@@ -10,7 +10,6 @@ site = wiki.Wiki()
 site.login('DatBot','redacted')
 update = page.Page(site, 'Template:Pending Changes backlog')
 template_path = "/data/project/datbot/Tasks/pendingbacklog/template.txt"
-useAPI = True
 LogActive = False
 
 def normTS(ts): # normalize a timestamp to the API format
@@ -90,12 +89,6 @@ def main():
             xyz = 1
             time.sleep(1800)
             xyz = 0
-        #if rows:
-            #rows.reverse()
-            #last = rows[0]
-            #lastid = last['revid']
-            #lasttime = last['pending_since']
-            #time.sleep(1.5)
 """ Some code here is Enterprisey's:
 The MIT License (MIT)
 
