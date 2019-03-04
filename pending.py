@@ -2,93 +2,72 @@ from wikitools import *
 import json
 import re
 import threading
+import sys
 import thread
 import time
 import datetime
+import userpass
 
 site = wiki.Wiki()
-site.login('DatBot','redacted')
-update = page.Page(site, 'Template:Pending Changes backlog')
+site.login(userpass.username, userpass.password)
+update = page.Page(site, 'User:DatBot/pendingbacklog')
 template_path = "/data/project/datbot/Tasks/pendingbacklog/template.txt"
+useAPI = True
 LogActive = False
 
-def normTS(ts): # normalize a timestamp to the API format
-        ts = str(ts)
-        if 'Z' in ts:
-                return ts
-        ts = datetime.datetime.strptime(ts, "%Y%m%d%H%M%S")
-        return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-def logFromAPI(lasttime):
-    lasttime = normTS(lasttime)
-    params = {'action':'query',
-              'list':'oldreviewedpages',
-              'orstart':lasttime,
-              'ordir':'newer',
-    }
-    req = api.APIRequest(site, params)
-    res = req.query(False)
-    rows = res['query']['oldreviewedpages']
-    #if len(rows) > 0:
-        #del rows[0] # The API uses >=, so the first row will be the same as the last row of the last set
-    ret = []
-    for row in rows:
-        entry = {}
-        entry['p'] = row['pageid']
-        entry['revid'] = row['revid']
-        entry['pending_since'] = row['pending_since']
-        ret.append(entry)
-    return ret
+def logFromAPI():
+	params = {'action':'query',
+		'list':'oldreviewedpages',
+		'orlimit':'max',
+		'ordir':'newer',
+	}
+	req = api.APIRequest(site, params)
+	res = req.query(False)
+	rows = res['query']['oldreviewedpages']
+	ret = []
+	for row in rows:
+		entry = {}
+		entry['p'] = row['pageid']
+		entry['revid'] = row['revid']
+		entry['pending_since'] = row['pending_since']
+		ret.append(entry)
+	return ret
 
 class StartupChecker(threading.Thread):
-        def run(self):
-                global LogActive
-                time.sleep(60)
-                if not LogActive:
-                        print "Init fail"
-                        thread.interrupt_main()
+	def run(self):
+		global LogActive
+		time.sleep(60)
+		if not LogActive:
+			print "Init fail"
+			thread.interrupt_main()
 
-def getStart():
-    params = {'action':'query',
-              'list':'oldreviewedpages',
-              'orlimit':'1',
-    }
-    req = api.APIRequest(site, params)
-    res = req.query(False)
-    row = res['query']['oldreviewedpages'][0]
-    lasttime = row['pending_since']
-    lastid = row['revid']
-    return (lasttime, lastid)
-
-def startAllowed(override):
-        if override:
-                return True
-        start = page.Page(site, 'User:DatBot/task2')
-        if start == "Run":
-                return True
-        else:
-                return False
+def startAllowed():
+	startpage = page.Page(site, 'User:DatBot/Pending backlog/Run')
+	start = startpage.getWikiText()
+	if start == "Run":
+		return True
+	else:
+		return False
 
 def main():
-    global LogActive
-    sc = StartupChecker()
-    sc.start()
-    (lasttime, lastid) = getStart()
-    LogActive = True
-    xyz = 0
-    while xyz < 1:
-        if useAPI:
-            rows = logFromAPI(lasttime)
-            amount = len(rows)
-            print amount
-            if is_edit_necessary(update, amount):
-                update_template(update, amount)
-            else:
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                print("[{}] No edit necessary.".format(timestamp))
-            xyz = 1
-            time.sleep(1800)
-            xyz = 0
+	global LogActive
+	sc = StartupChecker()
+	sc.start()
+	LogActive = True
+	startAllowed()
+	xyz = 0
+	while xyz < 1:
+		if useAPI:
+			rows = logFromAPI()
+			amount = len(rows)
+			if is_edit_necessary(update, amount):
+				update_template(update, amount)
+			else:
+				pass
+			xyz = 1
+			time.sleep(900)
+			xyz = 0
+
 """ Some code here is Enterprisey's:
 The MIT License (MIT)
 
@@ -102,41 +81,33 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 """
 
 def pages_to_level(amount):
-    if amount <= 5:
-        return 5
-    elif amount <= 10:
-        return 4
-    elif amount <= 20:
-        return 3
-    elif amount <= 30:
-        return 2
-    else:
-        return 1
+	if amount <= 3:
+		return 5
+	elif amount <= 7:
+		return 4
+	elif amount <= 12:
+		return 3
+	elif amount <= 17:
+		return 2
+	else:
+		return 1
 
 def is_edit_necessary(update, amount):
-        current_lvl = pages_to_level(amount)
-        onwiki_level_match = re.search("level\s*=\s*(\d+)",
-                                       update.getWikiText())
-        if onwiki_level_match:
-                onwiki_level = int(onwiki_level_match.group(1))
-                return onwiki_level != current_lvl
-        else:
-                return True
+	current_lvl = pages_to_level(amount)
+	onwiki_amount_match = re.search("info\s*=\s*(\d+)", update.getWikiText())
+	if onwiki_amount_match:
+		onwiki_amount = int(onwiki_amount_match.group(1))
+		return onwiki_amount != amount
+	else:
+		return True
 
-def update_template(update, amount):
-        level = pages_to_level(amount)
-        try:
-                template = open(template_path)
-        except IOError as e:
-                print(e)
-        else:
-                try:
-                    template_page.text = template.read() % (level, amount)
-                    template_page.save(COMMENT % (level, int(amount)))
-                except Exception as e:
-                    print(e)
-                finally:
-                    template.close()
-        
+def update_template(update, amount):      
+	level = pages_to_level(amount)
+	template = open(template_path)
+	change = template.read() % (level, amount)
+	editsummary = "[[Wikipedia:Bots/Requests for approval/DatBot 4|Bot]] updating pending changes level to level %d (%d pages)" % (level, int(amount))
+	update.edit(text=change, summary=editsummary, bot=True)
+	template.close()
+
 if __name__ == "__main__":
-        main()
+	main()
